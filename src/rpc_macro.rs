@@ -3,36 +3,45 @@ use std::net::TcpStream;
 use std::io::{BufReader, BufWriter};
 macro_rules! make_rpc {
     (define RPC $rpc:ident
-     Global State: $state:tt
-     Local State: $local:tt
-     Functions: $contract:tt) => {
+     Global State $g:ident: $state:tt
+     Connection State $l:ident: $local:tt
+     Procedures: $contract:tt) => {
         pub mod $rpc {
             pub use std::io::prelude::*;
             pub use super::*;
+            pub use std::sync::Arc;
+            pub use std::thread;
             make_rpc!(define state Global $state);
             make_rpc!(define state Local $local);
-            make_rpc!(define handlers $contract);
+            make_rpc!(define handlers $g $l $contract);
             use std::net::{TcpListener, ToSocketAddrs};
             make_rpc!(define router $contract);
             make_rpc!(define rpc_loop $contract);
             make_rpc!(define client $contract);
         }
     };
-    (define state $state_name:ident {$($name:ident : $t:ty),*}) => {
+    (define state $state_name:ident {$(let $name:ident : $t:ty =  $v:expr);*}) => {
         pub struct $state_name {
             should_quit : bool,
             $($name : $t,)*
         }
+        impl $state_name {
+            fn new() -> Self {
+                $state_name {should_quit : false, $($name : $v,)*}
+            }
+        }
+
     };
     (define router {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*}) => {
-        fn router<S>(mut stream : S) -> Result<()> where S: Read+Write {
+        fn router<S>(G : Arc<Global>, mut stream : S) -> Result<()> where S: Read+Write {
+            let mut L = Local::new();
             loop {
                 let rpcname : Result<String> = Deserialize::decode_stream(&mut stream);
                 match rpcname {
                     Ok(s) =>
                         match s.as_ref() {
                             $(stringify!($x) => {
-                                let res = $x::handle_stream(&mut stream);
+                                let res = $x::handle_stream(G.clone(), &mut L, &mut stream);
                                 if let Err(x) = res.encode_stream(&mut stream) {
                                     return Err(x)
                                 }
@@ -48,18 +57,20 @@ macro_rules! make_rpc {
     };
     (define rpc_loop {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*}) => {
         pub fn rpc_loop<A: ToSocketAddrs>(addr:A) {
+            let mut G = Arc::new(Global::new());
             let listener = TcpListener::bind(addr);
             if let Ok(l) = listener {
                 for stream in l.incoming() {
                     if let Ok(stream) = stream {
-                        router(stream);
+                        let G = G.clone();
+                        thread::spawn(move || router(G, stream));
                         ()
                     }
                 }
             }
         }
     };
-    (define handlers {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*}) => {
+    (define handlers $g:ident $l:ident {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*}) => {
         $(
             pub mod $x {
                 use super::*;
@@ -80,12 +91,12 @@ macro_rules! make_rpc {
                             Err(x) => Err(x),
                         }
                     }
-                fn handle($($name : $param,)*) -> Result<$y>
+                fn handle($g : Arc<Global>, $l : &mut Local, $($name : $param,)*) -> $y
                 {
                     $implementation
                 }
 
-                pub fn handle_stream<R:Read>(stream : &mut R) -> Result<$y>
+                pub fn handle_stream<R:Read>($g : Arc<Global>, $l : &mut Local, stream : &mut R) -> Result<$y>
                     where
                     $( $param : Transportable<R>,)*
                     $y:Transportable<R>
@@ -99,7 +110,7 @@ macro_rules! make_rpc {
                                 },
                             };
                          )*
-                           handle($($name,)*)
+                           Ok(handle($g, $l, $($name,)*))
                     }
             }
         )*

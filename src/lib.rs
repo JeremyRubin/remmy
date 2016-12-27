@@ -94,15 +94,39 @@ mod serialization_tests {
 mod rpc_tests {
     use std::{time, thread};
     pub use super::*;
+    pub use std::cell::Cell;
+
+    pub use std::sync::Mutex;
+    pub use std::ops::DerefMut;
     make_rpc!(define RPC server
-              Global State: {
-                  counter : i64
+              Global State G: {
+                  let counter : Mutex<u64> = Mutex::new(0);
+                  let counter2 : i64 = 0
               }
-              Local State: {
+              Connection State L: {
+                  let cache : String = String::new()
+
               }
-              Functions: {
-                  echo(a:u64) -> u64{Ok(a)};
-                  decrement() -> u64{Ok(1) }
+              Procedures: {
+                  echo(a:u64) -> u64{a};
+                  increment() -> u64{
+                      let mut data = G.counter.lock().unwrap();
+                      *data += 1;
+                      *data
+                  };
+                  decrement() -> u64{
+                      let mut data = G.counter.lock().unwrap();
+                      *data -= 1;
+                      *data
+                  };
+                  cache(s:String) -> u64 {
+                      L.cache.clear();
+                      L.cache.push_str(s.as_str());
+                      1
+                  };
+                  fetch_cache() -> String {
+                      L.cache.clone()
+                  }
               }
              );
     #[test]
@@ -116,6 +140,21 @@ mod rpc_tests {
             for i in 1..100 {
                 assert_eq!(conn.echo(i).unwrap(), i);
             }
+
+            for i in 1..101 {
+                let j = conn.increment().unwrap();
+                println!("{} == {}", i, j);
+                assert_eq!(i, i);
+            }
+            for i in (0..100).rev() {
+                let j = conn.decrement().unwrap();
+                println!("{} == {}", i, j);
+                assert_eq!(i, i);
+            }
+            conn.cache("hello".to_string());
+            assert_eq!(conn.fetch_cache().unwrap(), "hello".to_string());
+            println!("Got: {}", conn.fetch_cache().unwrap());
+
         }
     }
 }
