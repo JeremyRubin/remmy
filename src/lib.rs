@@ -7,6 +7,7 @@ pub enum RPCError {
     NotAvailable,
     SerializationError,
     StreamClosed,
+    UnknownError,
 }
 use std::result;
 pub type Result<T> = result::Result<T, RPCError>;
@@ -100,18 +101,21 @@ mod rpc_tests {
               Local State: {
               }
               Functions: {
-                  increment_by(amount:u64) -> u64{Ok(amount)};
+                  echo(a:u64) -> u64{Ok(a)};
                   decrement() -> u64{Ok(1) }
               }
              );
     #[test]
-    fn test() {
-        thread::spawn(|| server::rpc_loop("localhost:8080"));
-        thread::sleep(time::Duration::from_secs(1));
-        let res = server::client::new("localhost:8080")
-                      .increment_by(100)
-                      .unwrap();
-
-        thread::sleep(time::Duration::from_secs(1));
+    fn test_rpc() {
+        println!("Spawning");
+        let th = thread::spawn(|| server::rpc_loop("localhost:8000"));
+        println!("Spawned");
+        {
+            let mut conn = server::client::new("localhost:8000");
+            println!("Got Connection");
+            for i in 1..100 {
+                assert_eq!(conn.echo(i).unwrap(), i);
+            }
+        }
     }
 }

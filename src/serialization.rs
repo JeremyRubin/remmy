@@ -3,11 +3,11 @@ use std::io;
 use std::io::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use byteorder::ByteOrder;
-use std::result;
 use std::vec;
 use std::str;
 use super::RPCError;
 use super::Result;
+use std::io::ErrorKind;
 pub trait Serialize<W> {
     fn encode_stream(&self, stream: &mut W) -> Result<()> where W: Write;
 }
@@ -21,12 +21,12 @@ pub trait Transportable<S>: Serialize<S> + Deserialize<S> {}
 
 
 impl<R: Read> Deserialize<R> for () {
-    fn decode_stream(s: &mut R) -> Result<()> {
+    fn decode_stream(_: &mut R) -> Result<()> {
         Ok(())
     }
 }
 impl<W: Write> Serialize<W> for () {
-    fn encode_stream(&self, s: &mut W) -> Result<()> {
+    fn encode_stream(&self, _: &mut W) -> Result<()> {
         Ok(())
     }
 }
@@ -36,13 +36,19 @@ impl<R: Read> Deserialize<R> for RPCError {
     fn decode_stream(s: &mut R) -> Result<RPCError> {
         let mut buf: [u8; 1] = [0; 1];
         match s.read_exact(&mut buf) {
-            Err(UnexpectedEof) => return Err(RPCError::StreamClosed),
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::UnexpectedEof => return Err(RPCError::StreamClosed),
+                    _ => return Err(RPCError::UnknownError),
+                }
+            }
             _ => (),
         }
         match buf[0] {
             0 => Ok(RPCError::NotAvailable),
             1 => Ok(RPCError::SerializationError),
             2 => Ok(RPCError::StreamClosed),
+            3 => Ok(RPCError::UnknownError),
             _ => Err(RPCError::SerializationError),
         }
 
@@ -50,13 +56,22 @@ impl<R: Read> Deserialize<R> for RPCError {
 }
 impl<W: Write> Serialize<W> for RPCError {
     fn encode_stream(&self, s: &mut W) -> Result<()> {
-        let mut buf: [u8; 1] = [match *self {
-                                    RPCError::NotAvailable => 0,
-                                    RPCError::SerializationError => 1,
-                                    RPCError::StreamClosed => 2,
-                                }];
-        s.write_all(&buf);
-        Ok(())
+        let buf: [u8; 1] = [match *self {
+                                RPCError::NotAvailable => 0,
+                                RPCError::SerializationError => 1,
+                                RPCError::StreamClosed => 2,
+                                RPCError::UnknownError => 3,
+                            }];
+        match s.write_all(&buf) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::UnexpectedEof => Err(RPCError::StreamClosed),
+                    _ => return Err(RPCError::UnknownError),
+                }
+            }
+
+        }
     }
 }
 impl<S: Read + Write> Transportable<S> for RPCError {}
@@ -64,12 +79,17 @@ impl<S: Read + Write> Transportable<S> for RPCError {}
 
 impl<R: Read, T: Deserialize<R>> Deserialize<R> for Result<T> {
     fn decode_stream(s: &mut R) -> Result<Result<T>> {
-        let mut buf = [0];
-        match s.read_exact(&mut buf) {
-            Err(UnexpectedEof) => return Err(RPCError::StreamClosed),
+        let mut typebuf: [u8; 1] = [0u8];
+        match s.read_exact(&mut typebuf) {
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::UnexpectedEof => return Err(RPCError::StreamClosed),
+                    _ => return Err(RPCError::UnknownError),
+                }
+            }
             _ => (),
         }
-        match buf[0] {
+        match typebuf[0] {
             0 => {
                 let t: Result<T> = Deserialize::decode_stream(s);
                 match t {
@@ -105,8 +125,13 @@ impl<W: Write, T: Serialize<W>> Serialize<W> for Result<T> {
             }
         };
         match r {
-            (Err(UnexpectedEof), _) => return Err(RPCError::StreamClosed),
-            (_, Err(UnexpectedEof)) => return Err(RPCError::StreamClosed),
+            (Err(e), _) => {
+                match e.kind() {
+                    ErrorKind::UnexpectedEof => return Err(RPCError::StreamClosed),
+                    _ => return Err(RPCError::UnknownError),
+                }
+            }
+            (_, Err(e)) => Err(e),
             (Ok(_), Ok(_)) => return Ok(()),
         }
     }
@@ -117,7 +142,12 @@ impl<R: Read> Deserialize<R> for u64 {
     fn decode_stream(s: &mut R) -> Result<u64> {
         let mut buf: [u8; 8] = [0; 8];
         match s.read_exact(&mut buf) {
-            Err(UnexpectedEof) => return Err(RPCError::StreamClosed),
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::UnexpectedEof => return Err(RPCError::StreamClosed),
+                    _ => return Err(RPCError::UnknownError),
+                }
+            }
             _ => (),
         }
         Ok(BigEndian::read_u64(&buf))
@@ -128,7 +158,12 @@ impl<W: Write> Serialize<W> for u64 {
         let mut buf: [u8; 8] = [0; 8];
         BigEndian::write_u64(&mut buf, *self);
         match s.write_all(&buf) {
-            Err(UnexpectedEof) => return Err(RPCError::StreamClosed),
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::UnexpectedEof => return Err(RPCError::StreamClosed),
+                    _ => return Err(RPCError::UnknownError),
+                }
+            }
             Ok(_) => return Ok(()),
         }
     }
@@ -141,7 +176,12 @@ impl<R: Read> Deserialize<R> for String {
         let mut buf = vec::Vec::new();
         buf.resize(size, 0);
         match s.read_exact(buf.as_mut_slice()) {
-            Err(UnexpectedEof) => return Err(RPCError::StreamClosed),
+            Err(e) => {
+                match e.kind() {
+                    ErrorKind::UnexpectedEof => return Err(RPCError::StreamClosed),
+                    _ => return Err(RPCError::UnknownError),
+                }
+            }
             _ => (),
         }
         match str::from_utf8(buf.as_slice()) {
