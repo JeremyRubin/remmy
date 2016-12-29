@@ -1,8 +1,7 @@
 use super::{Result, RPCError};
-use std::io;
 use std::io::prelude::*;
 use std::io::ErrorKind;
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::BigEndian;
 use byteorder::ByteOrder;
 
 pub trait Serialize<W> {
@@ -11,8 +10,8 @@ pub trait Serialize<W> {
 
 impl<W: Write> Serialize<W> for String {
     fn encode_stream(&self, s: &mut W) -> Result<()> {
-        (self.len() as u64).encode_stream(s);
-        s.write_all(self.as_bytes());
+        try!((self.len() as u64).encode_stream(s));
+        try!(write_buf(s, self.as_bytes()));
         Ok(())
     }
 }

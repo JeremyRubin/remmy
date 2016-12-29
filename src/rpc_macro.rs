@@ -1,5 +1,3 @@
-use std::net::TcpStream;
-use std::io::{BufReader, BufWriter, Read, Write};
 #[macro_export]
 macro_rules! make_rpc {
     (define RPC $rpc:ident
@@ -29,26 +27,25 @@ macro_rules! make_rpc {
     };
     (define state $state_name:ident {$(let $name:ident : $t:ty =  $v:expr);*}) => {
         pub struct $state_name {
-            should_quit : bool,
             $($name : $t,)*
         }
         impl $state_name {
             fn new() -> Self {
-                $state_name {should_quit : false, $($name : $v,)*}
+                $state_name {$($name : $v,)*}
             }
         }
 
     };
     (define router {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*}) => {
-        fn router<S>(G : Arc<Global>, mut stream : S) -> Result<()> where S: Read+Write {
-            let mut L = Local::new();
+        fn router<S>(g : Arc<Global>, mut stream : S) -> Result<()> where S: Read+Write {
+            let mut l = Local::new();
             loop {
                 let rpcname = String::decode_stream(&mut stream);
                 match rpcname {
                     Ok(s) =>
                         match s.as_ref() {
                             $(stringify!($x) => {
-                                let res = $x::handle_stream(G.clone(), &mut L, &mut stream);
+                                let res = $x::handle_stream(g.clone(), &mut l, &mut stream);
                                 if let Err(x) = res.encode_stream(&mut stream) {
                                     return Err(x)
                                 }
@@ -63,15 +60,15 @@ macro_rules! make_rpc {
         }
     };
     (define rpc_loop {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*} $g:ident $control:block) => {
-        fn launch_listener<A: ToSocketAddrs>(addr: A, G : Arc<Global>) -> thread::JoinHandle<()> {
+        fn launch_listener<A: ToSocketAddrs>(addr: A, g : Arc<Global>) -> thread::JoinHandle<()> {
             let listener = TcpListener::bind(addr).unwrap();
             thread::spawn(
                 move ||
                 {
                     for stream in listener.incoming() {
                         if let Ok(stream) = stream {
-                            let G = G.clone();
-                            thread::spawn(move || router(G, stream));
+                            let g = g.clone();
+                            thread::spawn(move || router(g, stream));
                         }
                     }
                 })
@@ -79,8 +76,10 @@ macro_rules! make_rpc {
         pub fn rpc_loop<A: ToSocketAddrs>(addr:A) {
             let mut $g = Arc::new(Global::new());
             let tcp_thread = launch_listener(addr, $g.clone());
-            $control
-            tcp_thread.join();
+            {
+                $control
+            }
+            tcp_thread.join().unwrap();
         }
     };
     (define handlers $g:ident $l:ident {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*}) => {
@@ -96,7 +95,10 @@ macro_rules! make_rpc {
                         let rpcname = stringify!($x).to_string();
                         try!(rpcname.encode_stream(stream));
                         $(try!($name.encode_stream(stream));)*;
-                        stream.flush();
+                        match stream.flush() {
+                            Ok(()) => (),
+                            Err(_) => return Err(RPCError::SerializationError),
+                        }
 // One wrap from the deserialize, one as the result return
                         let response = Result::<$y>::decode_stream(stream);
                         match response {
@@ -109,13 +111,13 @@ macro_rules! make_rpc {
                     $implementation
                 }
 
-                pub fn handle_stream<R:Read>($g : Arc<Global>, $l : &mut Local, stream : &mut R) -> Result<$y>
+                pub fn handle_stream<R:Read>($g : Arc<Global>, $l : &mut Local, _stream : &mut R) -> Result<$y>
                     where
                     $( $param : Transportable<R>,)*
                     $y:Transportable<R>
                     {
                         $(
-                            let $name = <$param>::decode_stream(stream);
+                            let $name = <$param>::decode_stream(_stream);
                             let $name = match $name {
                                 Ok(v) => v,
                                 Err(x) =>{
@@ -139,7 +141,7 @@ macro_rules! make_rpc {
                 use std::clone::Clone;
             pub fn new<A: ToSocketAddrs+Clone>(addr:A) -> Connection {
                 use std::time;
-                for i in 1..4 {
+                for _ in 1..4 {
                     let s = TcpStream::connect(addr.clone());
                     thread::sleep(time::Duration::from_millis(10));
                     match s {

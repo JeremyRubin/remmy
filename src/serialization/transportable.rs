@@ -1,7 +1,6 @@
 use super::serialize::Serialize;
 use super::deserialize::Deserialize;
 use super::{RPCError, Result};
-use std::io;
 use std::io::prelude::*;
 pub trait Transportable<S>: Serialize<S> + Deserialize<S> {}
 macro_rules! d {

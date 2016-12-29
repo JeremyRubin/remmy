@@ -19,71 +19,86 @@ pub mod rpc_macro;
 
 #[cfg(test)]
 mod rpc_tests {
-    use std::{thread, time};
+    use std::thread;
     pub use std::sync::Mutex;
     make_rpc!(define RPC server
-              Global State g: {
+              Global State _g: {
                   let counter : Mutex<u64> = Mutex::new(0);
-                  let counter2 : i64 = 0
+                  let alive : Mutex<u8> = Mutex::new(0)
               }
               Control Loop: {
                   use std::time;
-                  loop {
+                  while *_g.alive.lock().unwrap() == 0 {
                       thread::sleep(time::Duration::from_secs(1));
-                      println!("Counter {}", *g.counter.lock().unwrap());
                   }
+                  *_g.alive.lock().unwrap() = 2;
               }
-              Connection State l: {
+              Connection State _l: {
                   let cache : String = String::new()
               }
               Procedures: {
                   echo(a:u64) -> u64{a};
                   increment() -> u64{
-                      let mut data = g.counter.lock().unwrap();
+                      let mut data = _g.counter.lock().unwrap();
                       *data += 1;
                       *data
                   };
                   decrement() -> u64{
-                      let mut data = g.counter.lock().unwrap();
+                      let mut data = _g.counter.lock().unwrap();
                       *data -= 1;
                       *data
                   };
                   cache(s:String) -> u64 {
-                      l.cache.clear();
-                      l.cache.push_str(s.as_str());
+                      _l.cache.clear();
+                      _l.cache.push_str(s.as_str());
                       1
                   };
                   fetch_cache() -> String {
-                      l.cache.clone()
+                      _l.cache.clone()
+                  };
+                  shutdown() -> () {
+                      {
+                          let mut x = _g.alive.lock().unwrap();
+                          match *x {
+                              0 => *x = 1,
+                              1 => return (),
+                              _ => return (),
+                          }
+                      }
+                      {
+                          loop {
+                              use std::time;
+                              thread::sleep(time::Duration::from_millis(100));
+                              if *(_g.alive.lock().unwrap()) == 2 {
+                                  return ()
+                              }
+                          }
+                      }
                   }
-              }
-             );
+              });
+
+
     #[test]
     fn test_rpc() {
-        println!("Spawning");
-        let th = thread::spawn(|| server::rpc_loop("localhost:8000"));
-        println!("Spawned");
+        let _ = thread::spawn(|| server::rpc_loop("localhost:8000"));
         {
             let mut conn = server::client::new("localhost:8000");
-            println!("Got Connection");
             for i in 1..100 {
                 assert_eq!(conn.echo(i).unwrap(), i);
             }
 
             for i in 1..101 {
                 let j = conn.increment().unwrap();
-                println!("{} == {}", i, j);
-                assert_eq!(i, i);
+                assert_eq!(i, j);
             }
             for i in (0..100).rev() {
                 let j = conn.decrement().unwrap();
-                println!("{} == {}", i, j);
-                assert_eq!(i, i);
+                assert_eq!(i, j);
             }
-            conn.cache("hello".to_string());
+            conn.cache("hello".to_string()).unwrap();
             assert_eq!(conn.fetch_cache().unwrap(), "hello".to_string());
-            println!("Got: {}", conn.fetch_cache().unwrap());
-
+            conn.shutdown().unwrap();
         }
+
     }
 }

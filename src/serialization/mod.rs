@@ -19,7 +19,7 @@ mod serialization_tests {
         let mut buff: Cursor<Vec<u8>> = Cursor::new(v);
         let a: u64 = 100;
         {
-            a.encode_stream(&mut buff);
+            a.encode_stream(&mut buff).unwrap();
         }
         buff.set_position(0);
         let x: Result<u64> = u64::decode_stream(&mut buff);
@@ -36,7 +36,7 @@ mod serialization_tests {
         let mut buff: Cursor<Vec<u8>> = Cursor::new(v);
         let a: String = "12345678".to_string();
         {
-            a.encode_stream(&mut buff);
+            a.encode_stream(&mut buff).unwrap();
         }
         buff.set_position(0);
         let x: Result<String> = String::decode_stream(&mut buff);
@@ -54,7 +54,7 @@ mod serialization_tests {
         let a: String = "1234567".to_string();
         {
             let b = a.clone();
-            Ok(b).encode_stream(&mut buff);
+            Ok(b).encode_stream(&mut buff).unwrap();
         }
         buff.set_position(0);
         let x: Result<Result<String>> = Result::<String>::decode_stream(&mut buff);
@@ -70,7 +70,7 @@ mod serialization_tests {
         v.resize(100, 0);
         let mut buff: Cursor<Vec<u8>> = Cursor::new(v);
         let r: Result<String> = Err(RPCError::SerializationError);
-        r.encode_stream(&mut buff);
+        r.encode_stream(&mut buff).unwrap();
         buff.set_position(0);
         let x: Result<Result<String>> = Result::<String>::decode_stream(&mut buff);
         match x {

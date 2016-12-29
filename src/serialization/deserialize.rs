@@ -1,8 +1,7 @@
 use super::{Result, RPCError};
-use std::io;
 use std::io::prelude::*;
 use std::io::ErrorKind;
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::BigEndian;
 use byteorder::ByteOrder;
 use std::vec;
 use std::str;
