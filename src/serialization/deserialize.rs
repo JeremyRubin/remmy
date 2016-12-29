@@ -1,5 +1,3 @@
-
-
 use super::{Result, RPCError};
 use std::io;
 use std::io::prelude::*;
@@ -115,5 +113,21 @@ impl<R: Read> Deserialize<R> for String {
             Err(_) => Err(RPCError::SerializationError),
         }
 
+    }
+}
+
+impl<R: Read, T: Deserialize<R>> Deserialize<R> for Option<T> {
+    fn decode_stream(s: &mut R) -> Result<Option<T>> {
+        let typebuf = try!(u8::decode_stream(s));
+        match typebuf {
+            0 => return Ok(None),
+            1 => {
+                if let Ok(t) = T::decode_stream(s) {
+                    return Ok(Some(t));
+                }
+            }
+            _ => (),
+        }
+        return Err(RPCError::SerializationError);
     }
 }

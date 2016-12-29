@@ -1,17 +1,16 @@
 extern crate byteorder;
 pub use super::{Result, RPCError};
 pub mod serialize;
-pub use serialize::Serialize;
 pub mod deserialize;
-pub use deserialize::Deserialize;
 pub mod transportable;
-pub use transportable::Transportable;
 
 
 
 #[cfg(test)]
 mod serialization_tests {
-    pub use super::*;
+    use super::*;
+    use serialization::serialize::Serialize;
+    use serialization::deserialize::Deserialize;
     #[test]
     fn serdeser_u64() {
         use std::io::Cursor;
@@ -23,7 +22,7 @@ mod serialization_tests {
             a.encode_stream(&mut buff);
         }
         buff.set_position(0);
-        let x: Result<u64> = Deserialize::decode_stream(&mut buff);
+        let x: Result<u64> = u64::decode_stream(&mut buff);
         match x {
             Ok(x) => assert_eq!(x, a),
             _ => panic!("Failed to deserialize {} properly", a),
@@ -40,7 +39,7 @@ mod serialization_tests {
             a.encode_stream(&mut buff);
         }
         buff.set_position(0);
-        let x: Result<String> = Deserialize::decode_stream(&mut buff);
+        let x: Result<String> = String::decode_stream(&mut buff);
         match x {
             Ok(x) => assert_eq!(x, a),
             _ => panic!("Failed to deserialize {} properly", a),
@@ -58,7 +57,7 @@ mod serialization_tests {
             Ok(b).encode_stream(&mut buff);
         }
         buff.set_position(0);
-        let x: Result<Result<String>> = Deserialize::decode_stream(&mut buff);
+        let x: Result<Result<String>> = Result::<String>::decode_stream(&mut buff);
         match x {
             Ok(Ok(x)) => assert_eq!(x, a),
             _ => panic!("Failed to deserialize {} properly", a),
@@ -73,7 +72,7 @@ mod serialization_tests {
         let r: Result<String> = Err(RPCError::SerializationError);
         r.encode_stream(&mut buff);
         buff.set_position(0);
-        let x: Result<Result<String>> = Deserialize::decode_stream(&mut buff);
+        let x: Result<Result<String>> = Result::<String>::decode_stream(&mut buff);
         match x {
             Ok(Err(RPCError::SerializationError)) => (),
             _ => panic!("Failed to deserialize Err(SerializationError) properly"),

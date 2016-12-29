@@ -1,4 +1,6 @@
-use super::{Serialize, Deserialize, RPCError, Result};
+use super::serialize::Serialize;
+use super::deserialize::Deserialize;
+use super::{RPCError, Result};
 use std::io;
 use std::io::prelude::*;
 pub trait Transportable<S>: Serialize<S> + Deserialize<S> {}
@@ -12,3 +14,4 @@ d!(RPCError);
 d!(u64);
 d!(String);
 impl<S: Read + Write, T: Transportable<S>> Transportable<S> for Result<T> {}
+impl<S: Read + Write, T: Transportable<S>> Transportable<S> for Option<T> {}

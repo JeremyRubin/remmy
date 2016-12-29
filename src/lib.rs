@@ -13,27 +13,28 @@ use std::result;
 pub type Result<T> = result::Result<T, RPCError>;
 
 pub mod serialization;
-pub use serialization::*;
 
 #[macro_use]
-mod rpc_macro;
+pub mod rpc_macro;
 
 #[cfg(test)]
 mod rpc_tests {
-    use std::{time, thread};
-    pub use super::*;
-    pub use std::cell::Cell;
-
+    use std::{thread, time};
     pub use std::sync::Mutex;
-    pub use std::ops::DerefMut;
     make_rpc!(define RPC server
               Global State g: {
                   let counter : Mutex<u64> = Mutex::new(0);
                   let counter2 : i64 = 0
               }
+              Control Loop: {
+                  use std::time;
+                  loop {
+                      thread::sleep(time::Duration::from_secs(1));
+                      println!("Counter {}", *g.counter.lock().unwrap());
+                  }
+              }
               Connection State l: {
                   let cache : String = String::new()
-
               }
               Procedures: {
                   echo(a:u64) -> u64{a};

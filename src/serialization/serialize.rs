@@ -95,3 +95,15 @@ impl<W: Write, T: Serialize<W>> Serialize<W> for Result<T> {
         }
     }
 }
+
+impl<W: Write, T: Serialize<W>> Serialize<W> for Option<T> {
+    fn encode_stream(&self, s: &mut W) -> Result<()> {
+        match self {
+            &None => 0u8.encode_stream(s),
+            &Some(ref a) => {
+                try!(1u8.encode_stream(s));
+                a.encode_stream(s)
+            }
+        }
+    }
+}
