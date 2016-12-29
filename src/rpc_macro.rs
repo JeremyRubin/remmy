@@ -1,3 +1,4 @@
+
 #[macro_export]
 macro_rules! make_rpc {
     (define RPC $rpc:ident
@@ -7,15 +8,19 @@ macro_rules! make_rpc {
      Procedures: $contract:tt) => {
         pub mod $rpc {
             use super::*;
-            pub use $crate::RPCError;
-            pub use $crate::Result;
-            pub use $crate::serialization::serialize::Serialize;
-            pub use $crate::serialization::deserialize::Deserialize;
-            pub use $crate::serialization::transportable::Transportable;
+            use $crate::Result;
+            use $crate::serialization::serialize::Serialize;
+            use $crate::serialization::deserialize::Deserialize;
+            use $crate::serialization::transportable::Transportable;
+            trait RemoteProcedure<S: Read + Write, T: Transportable<S>, Global, Local> {
+                fn call(&self, stream: &mut S) -> Result<T>;
+                fn handle(self, g: Arc<Global>, l: &mut Local) -> T;
+                fn handle_stream(g: Arc<Global>, l: &mut Local, _stream: &mut S) -> Result<T>;
+            }
 
-            pub use std::sync::Arc;
-            pub use std::thread;
-            pub use std::io::{Read, Write};
+            use std::sync::Arc;
+            use std::thread;
+            use std::io::{Read, Write};
             make_rpc!(define state Global $state);
             make_rpc!(define state Local $local);
             make_rpc!(define handlers $g $l $contract);
@@ -36,7 +41,7 @@ macro_rules! make_rpc {
         }
 
     };
-    (define router {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*}) => {
+    (define router {$($x:ident [$($name:ident : $param:ty),* $(as $self_:ident),*] $y:ty $implementation:block);*}) => {
         fn router<S>(g : Arc<Global>, mut stream : S) -> Result<()> where S: Read+Write {
             let mut l = Local::new();
             loop {
@@ -45,21 +50,21 @@ macro_rules! make_rpc {
                     Ok(s) =>
                         match s.as_ref() {
                             $(stringify!($x) => {
-                                let res = $x::handle_stream(g.clone(), &mut l, &mut stream);
+                                let res = $x::<S>::handle_stream(g.clone(), &mut l, &mut stream);
                                 if let Err(x) = res.encode_stream(&mut stream) {
                                     return Err(x)
                                 }
                             },)*
-                            _ =>  {let x : Result<()> = Err(RPCError::NotAvailable);
+                            _ =>  {let x : Result<()> = Err($crate::RPCError::NotAvailable);
                                 return x.encode_stream(&mut stream)},
                         },
-                    _ =>  {let x : Result<()> = Err(RPCError::SerializationError);
+                    _ =>  {let x : Result<()> = Err($crate::RPCError::SerializationError);
                         return x.encode_stream(&mut stream)},
                 };
             }
         }
     };
-    (define rpc_loop {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*} $g:ident $control:block) => {
+    (define rpc_loop {$($x:ident [$($name:ident : $param:ty),* $(as $self_:ident),*] $y:ty $implementation:block);*} $g:ident $control:block) => {
         fn launch_listener<A: ToSocketAddrs>(addr: A, g : Arc<Global>) -> thread::JoinHandle<()> {
             let listener = TcpListener::bind(addr).unwrap();
             thread::spawn(
@@ -73,7 +78,7 @@ macro_rules! make_rpc {
                     }
                 })
         }
-        pub fn rpc_loop<A: ToSocketAddrs>(addr:A) {
+        pub fn main<A: ToSocketAddrs>(addr:A) {
             let mut $g = Arc::new(Global::new());
             let tcp_thread = launch_listener(addr, $g.clone());
             {
@@ -82,65 +87,64 @@ macro_rules! make_rpc {
             tcp_thread.join().unwrap();
         }
     };
-    (define handlers $g:ident $l:ident {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*}) => {
+    (define handlers $g:ident $l:ident {$($x:ident [$($name:ident : $param:ty),* $(as $self_:ident),*] $y:ty $implementation:block);*}) => {
+        use std::marker::PhantomData;
         $(
-            pub mod $x {
-                use super::*;
-                pub fn call<S>(stream: &mut S, $($name : $param,)*)-> Result<$y>
-                    where
-                    S : Read + Write,
-                    $($param : Transportable<S>,)*
-                    $y:Transportable<S>
-                    {
-                        let rpcname = stringify!($x).to_string();
-                        try!(rpcname.encode_stream(stream));
-                        $(try!($name.encode_stream(stream));)*;
-                        match stream.flush() {
-                            Ok(()) => (),
-                            Err(_) => return Err(RPCError::SerializationError),
-                        }
-// One wrap from the deserialize, one as the result return
-                        let response = Result::<$y>::decode_stream(stream);
-                        match response {
-                            Ok(x) => x,
-                            Err(x) => Err(x),
-                        }
-                    }
-                fn handle($g : Arc<Global>, $l : &mut Local, $($name : $param,)*) -> $y
+            #[allow(non_camel_case_types)]
+            pub struct $x<S>  where
+            $($param : Transportable<S>,)*
+            Result<$y> : Transportable<S>
+            {
+                phantom : PhantomData<S>,
+                $($name : $param,)*
+            }
+            impl<R: Read+Write> Deserialize<R> for $x<R> {
+                fn decode_stream(_s: &mut R) -> Result<$x<R>> {
+                    $(
+                        let $name = try!(<$param>::decode_stream(_s));
+                     )*
+                    let v  = $x::<R> { $($name : $name,)* phantom:PhantomData};
+                    Ok(v)
+                }
+            }
+
+            impl<W: Read+Write> Serialize<W> for $x<W> {
+                fn encode_stream(&self, _s: &mut W) -> Result<()> {
+                    $(try!(self.$name.encode_stream(_s));)*;
+                    Ok(())
+                }
+            }
+            impl<S:Read + Write> RemoteProcedure<S, $y, Global, Local> for $x<S> {
+                fn call(&self, stream: &mut S)-> Result<$y>
                 {
+                    try!(stringify!($x).encode_stream(stream));
+                    try!(self.encode_stream(stream));
+                    try!(stream.flush().or_else(|_|Err($crate::RPCError::SerializationError)));
+// One wrap from the deserialize, one as the result return
+                    Result::<$y>::decode_stream(stream).and_then(|x| x)
+                }
+                fn handle(self, $g : Arc<Global>, $l : &mut Local) -> $y
+                {
+                    $(let $self_ = self;)*
                     $implementation
                 }
 
-                pub fn handle_stream<R:Read>($g : Arc<Global>, $l : &mut Local, _stream : &mut R) -> Result<$y>
-                    where
-                    $( $param : Transportable<R>,)*
-                    $y:Transportable<R>
-                    {
-                        $(
-                            let $name = <$param>::decode_stream(_stream);
-                            let $name = match $name {
-                                Ok(v) => v,
-                                Err(x) =>{
-                                    let e = Err(x);
-                                    return e
-                                },
-                            };
-                         )*
-                           Ok(handle($g, $l, $($name,)*))
-                    }
+                fn handle_stream($g : Arc<Global>, $l : &mut Local, _stream : &mut S) -> Result<$y>
+                {
+                    $x::<S>::decode_stream(_stream).and_then(|x| Ok(x.handle($g, $l)))
+                }
             }
-        )*
+            )*
     };
-    (define client {$($x:ident($($name:ident : $param:ty),*) -> $y:ty $implementation:block);*}) => {
+    (define client {$($x:ident [$($name:ident : $param:ty),* $(as $self_:ident),*] $y:ty $implementation:block);*}) => {
         pub mod client {
-            use super::*;
             use std::net::{TcpStream,ToSocketAddrs};
+            use std::{thread, time};
             pub struct Connection {
                 stream : TcpStream,
             }
-                use std::clone::Clone;
+            use std::clone::Clone;
             pub fn new<A: ToSocketAddrs+Clone>(addr:A) -> Connection {
-                use std::time;
                 for _ in 1..4 {
                     let s = TcpStream::connect(addr.clone());
                     thread::sleep(time::Duration::from_millis(10));
@@ -151,14 +155,13 @@ macro_rules! make_rpc {
                 }
                 panic!("Failed to open connection")
             }
-            impl Connection {
+            impl Connection{
                 $(
-                    pub fn $x(&mut self, $($name : $param,)*)-> Result<$y>
-                    where
-                    $( $param : Transportable<TcpStream>,)*
-                    $y:Transportable<TcpStream>
+                    pub fn $x(&mut self, $($name : $param,)*)-> $crate::Result<$y>
                     {
-                        $x::call(&mut self.stream, $($name,)*)
+                        use super::RemoteProcedure;
+                        use std::marker::PhantomData;
+                        (super::$x::<TcpStream> {$($name:$name,)* phantom:PhantomData}).call(&mut self.stream)
                     }
                  )*
             }

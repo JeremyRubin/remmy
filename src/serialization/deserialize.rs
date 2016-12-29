@@ -101,6 +101,26 @@ impl<R: Read, T: Deserialize<R>> Deserialize<R> for Result<T> {
 }
 
 
+use std::borrow::Cow;
+impl<'a, R: Read, T: Deserialize<R> + Clone> Deserialize<R> for Cow<'a, T> {
+    fn decode_stream(s: &mut R) -> Result<Cow<'a, T>> {
+        Ok(Cow::Owned(try!(T::decode_stream(s))))
+    }
+}
+
+impl<'a, R: Read> Deserialize<R> for Cow<'a, str> {
+    fn decode_stream(s: &mut R) -> Result<Cow<'a, str>> {
+        let size = try!(u64::decode_stream(s)) as usize;
+        let mut buf = vec::Vec::new();
+        buf.resize(size, 0);
+        try!(fill_buf(s, buf.as_mut_slice()));
+        match str::from_utf8(buf.as_slice()) {
+            Ok(s) => Ok(Cow::Owned(s.to_string())),
+            Err(_) => Err(RPCError::SerializationError),
+        }
+
+    }
+}
 impl<R: Read> Deserialize<R> for String {
     fn decode_stream(s: &mut R) -> Result<String> {
         let size = try!(u64::decode_stream(s)) as usize;

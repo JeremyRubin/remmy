@@ -37,26 +37,26 @@ mod rpc_tests {
                   let cache : String = String::new()
               }
               Procedures: {
-                  echo(a:u64) -> u64{a};
-                  increment() -> u64{
+                  echo [a:u64 as msg] u64{msg.a};
+                  increment [] u64{
                       let mut data = _g.counter.lock().unwrap();
                       *data += 1;
                       *data
                   };
-                  decrement() -> u64{
+                  decrement []  u64{
                       let mut data = _g.counter.lock().unwrap();
                       *data -= 1;
                       *data
                   };
-                  cache(s:String) -> u64 {
+                  cache [s:String as msg]  u64 {
                       _l.cache.clear();
-                      _l.cache.push_str(s.as_str());
+                      _l.cache.push_str(msg.s.as_str());
                       1
                   };
-                  fetch_cache() -> String {
+                  fetch_cache []  String {
                       _l.cache.clone()
                   };
-                  shutdown() -> () {
+                  shutdown []  () {
                       {
                           let mut x = _g.alive.lock().unwrap();
                           match *x {
@@ -80,7 +80,7 @@ mod rpc_tests {
 
     #[test]
     fn test_rpc() {
-        let _ = thread::spawn(|| server::rpc_loop("localhost:8000"));
+        let _ = thread::spawn(|| server::main("localhost:8000"));
         {
             let mut conn = server::client::new("localhost:8000");
             for i in 1..100 {

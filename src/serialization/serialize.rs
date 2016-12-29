@@ -8,6 +8,19 @@ pub trait Serialize<W> {
     fn encode_stream(&self, stream: &mut W) -> Result<()> where W: Write;
 }
 
+impl<'a, W: Write> Serialize<W> for &'a str {
+    fn encode_stream(&self, s: &mut W) -> Result<()> {
+        try!((self.len() as u64).encode_stream(s));
+        try!(write_buf(s, self.as_bytes()));
+        Ok(())
+    }
+}
+use std::borrow::Cow;
+impl<'a, W: Write, T: Serialize<W> + Clone> Serialize<W> for Cow<'a, T> {
+    fn encode_stream(&self, s: &mut W) -> Result<()> {
+        T::encode_stream(self, s)
+    }
+}
 impl<W: Write> Serialize<W> for String {
     fn encode_stream(&self, s: &mut W) -> Result<()> {
         try!((self.len() as u64).encode_stream(s));

@@ -14,3 +14,5 @@ d!(u64);
 d!(String);
 impl<S: Read + Write, T: Transportable<S>> Transportable<S> for Result<T> {}
 impl<S: Read + Write, T: Transportable<S>> Transportable<S> for Option<T> {}
+use std::borrow::Cow;
+impl<'a, S: Read + Write, T: Transportable<S> + Clone> Transportable<S> for Cow<'a, T> {}

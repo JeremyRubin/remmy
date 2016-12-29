@@ -5,6 +5,7 @@ pub use std::sync::Mutex;
 pub use std::collections::hash_map::HashMap;
 pub use std::collections::vec_deque;
 pub use std::sync::RwLock;
+pub use std::borrow::Cow;
 pub type Table = RwLock<vec_deque::VecDeque<String>>;
 make_rpc!(define RPC link_shortener
           Global State _g: {
@@ -30,21 +31,21 @@ make_rpc!(define RPC link_shortener
           Connection State _l: {
           }
           Procedures: {
-              fetch_link(s : u64) -> Option<String>{
+              fetch_link [s : u64 as msg] Option<String>{
                   let data = _g.table.read().unwrap();
                   let counter = _g.counter.read().unwrap();
-                  if (s as usize) >= *counter  {
-                     return data.get((s as usize) - *counter).cloned()
+                  if (msg.s as usize) >= *counter  {
+                     return data.get((msg.s as usize) - *counter).cloned()
                   }
                   None
               };
-              make_link(s : String) -> u64 {
+              make_link [s : String as msg] u64 {
                   let mut data = _g.table.write().unwrap();
                   let counter = _g.counter.read().unwrap();
-                  data.push_back(s);
+                  data.push_back(msg.s);
                   (data.len()-1+ *counter) as u64
               };
-              shutdown() -> () {
+              shutdown [] () {
                   {
                       let mut x = _g.alive.lock().unwrap();
                       match *x {
@@ -77,7 +78,7 @@ mod integration_test {
             while m.swap(true, atomic::Ordering::SeqCst) {
             }
         }
-        let _ = thread::spawn(|| link_shortener::rpc_loop("localhost:8000"));
+        let _ = thread::spawn(|| link_shortener::main("localhost:8000"));
         let mut conn = link_shortener::client::new("localhost:8000");
         {
             for i in 0..100 {
@@ -105,7 +106,7 @@ mod integration_test {
             while m.swap(true, atomic::Ordering::SeqCst) {
             }
         }
-        let _ = thread::spawn(|| link_shortener::rpc_loop("localhost:8000"));
+        let _ = thread::spawn(|| link_shortener::main("localhost:8000"));
         use std::vec;
         let s: vec::Vec<thread::JoinHandle<()>> =
             (0..100)
