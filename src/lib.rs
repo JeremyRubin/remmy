@@ -1,18 +1,15 @@
 extern crate byteorder;
+extern crate slim;
+
+pub use slim::{Deserialize, Serialize, Transportable};
 
 
-
-#[derive(Debug)]
-pub enum RPCError {
-    NotAvailable,
-    SerializationError,
-    StreamClosed,
-    UnknownError,
-}
 use std::result;
 pub type Result<T> = result::Result<T, RPCError>;
 
-pub mod serialization;
+pub mod errors;
+pub use errors::*;
+
 
 #[macro_use]
 pub mod rpc_macro;

@@ -1,8 +1,8 @@
 [package]
-name = "rpclib"
+name = "remmy"
 version = "0.1.0"
 authors = ["Jeremy Rubin <jeremy.l.rubin@gmail.com>"]
 
 [dependencies]
 byteorder = "0.5.3"
-
+slim = {path="../slim"}

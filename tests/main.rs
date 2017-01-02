@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate rpclib;
+extern crate slim;
 
 pub use std::sync::Mutex;
 pub use std::collections::hash_map::HashMap;
