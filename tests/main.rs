@@ -1,5 +1,5 @@
 #[macro_use]
-extern crate rpclib;
+extern crate remmy;
 extern crate slim;
 
 pub use std::sync::Mutex;
